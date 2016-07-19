@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import argparse
 import mysql.connector
+from subprocess import check_output
 
 def main():
     parser = argparse.ArgumentParser()
@@ -58,6 +59,33 @@ def main():
             exit(4)
 
     #run mysqldump specifying the tables listed from the source
+    cmd = 'mysqldump -h {} -u {} -p"{}" {} {}'.format( \
+        source_config['host'], source_config['user'], source_config['password'], \
+        source_config['database'], ' '.join('{}'.format(t) for t in args.tablename))
+
+    print("Running {}".format(cmd))
+    source_statements = check_output(cmd)
+    new_statements = []
+
+    #we have the backup statements lets build a complete script
+    #go line by line and replace referneces to `table_name` with `table_name__swaptmp`
+    SWAP_SUFFIX = "__swaptmp"
+    OLD_SUFFIX = "__swapold"
+
+    for line in source_statements.splitlines():
+        for t in args.tablename:
+            line = line.replace("`{}`".format(t), "`{}{}`".format(t, SWAP_SUFFIX))
+
+        new_statements.append(line)
+
+    #we now have a line by line representation of the statements required
+    #to produce tmp copies of our tables ready for swap. the next step is
+    #to add the rest of the commands that will do the rename/swap work
+    #followed by dropping the old tables
+
+    
+
+    print("\n".join('{}'.format(k) for k in new_statements))
 
 def magento_version_check(source_config, dest_config):
     source_conn = mysql.connector.connect(**source_config)
