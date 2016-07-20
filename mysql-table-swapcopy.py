@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 import argparse
 import mysql.connector
-from subprocess import check_output
+import random
+import string
+import tempfile
+from subprocess import check_call, Popen
 
 def main():
     parser = argparse.ArgumentParser()
@@ -64,28 +67,50 @@ def main():
         source_config['database'], ' '.join('{}'.format(t) for t in args.tablename))
 
     print("Running {}".format(cmd))
-    source_statements = check_output(cmd)
-    new_statements = []
 
-    #we have the backup statements lets build a complete script
-    #go line by line and replace referneces to `table_name` with `table_name__swaptmp`
-    SWAP_SUFFIX = "__swaptmp"
-    OLD_SUFFIX = "__swapold"
+    with tempfile.TemporaryFile(mode='w+') as infile:
+        check_call(cmd, stdout=infile)
+        infile.seek(0)
 
-    for line in source_statements.splitlines():
-        for t in args.tablename:
-            line = line.replace("`{}`".format(t), "`{}{}`".format(t, SWAP_SUFFIX))
+        #we have the backup statements. lets build a complete script
+        #go line by line and replace referneces to `table_name` with `table_name__swaptmp`
+        SWAP_SUFFIX = "__swaptmp"
+        OLD_SUFFIX = "__swapold"
 
-        new_statements.append(line)
+        with tempfile.TemporaryFile(mode='w+b') as outfile:
+            for line in infile:
+                line = line.strip()
+                for t in args.tablename:
+                    line = line.replace("`{}`".format(t), "`{}{}`".format(t, SWAP_SUFFIX))
 
-    #we now have a line by line representation of the statements required
-    #to produce tmp copies of our tables ready for swap. the next step is
-    #to add the rest of the commands that will do the rename/swap work
-    #followed by dropping the old tables
+                outfile.write(bytes(line + "\n", 'UTF-8'))
 
-    
+            #we now have a line by line representation of the statements required
+            #to produce tmp copies of our tables ready for swap. the next step is
+            #to add the rest of the commands that will do the rename/swap work
 
-    print("\n".join('{}'.format(k) for k in new_statements))
+            #drop all the old exchange tables incase they're leftover
+            add_drop_old_exchange_tables(args.tablename, outfile, OLD_SUFFIX)
+
+            #add the swap commands for all tables
+            for t in args.tablename:
+                line =  "RENAME TABLE `{}` TO `{}{}`, ".format(t, t, OLD_SUFFIX)
+                line += "`{}{}` TO `{}`;".format(t, SWAP_SUFFIX, t)
+                outfile.write(bytes(line + "\n", 'UTF-8'))
+
+            outfile.seek(0);
+
+            #send it all to
+            import_cmd = 'mysql -h {} -u {} -p"{}" {}'.format( \
+                dest_config['host'], dest_config['user'], dest_config['password'], \
+                dest_config['database'])
+
+            check_call(import_cmd, stdin=outfile)
+
+def add_drop_old_exchange_tables(tables, outfile, old_suffix):
+    for t in tables:
+        line = "DROP TABLE IF EXISTS `{}{}`;".format(t, old_suffix)
+        outfile.write(bytes(line + "\n", 'UTF-8'))
 
 def magento_version_check(source_config, dest_config):
     source_conn = mysql.connector.connect(**source_config)
@@ -105,7 +130,7 @@ def magento_version_check(source_config, dest_config):
 
         dcursor.execute(query)
         for (module, schema_version, data_version) in dcursor:
-            if versions_by_module.has_key(module):
+            if module in versions_by_module:
                 #make sure all the versions match
                 version_pair = versions_by_module[module]
                 if version_pair[0] != schema_version or version_pair[1] != data_version:
