@@ -63,9 +63,9 @@ def main():
             exit(4)
 
     #run mysqldump specifying the tables listed from the source
-    cmd = 'mysqldump -h {} -u {} -p"{}" {} {}'.format( \
-        source_config['host'], source_config['user'], source_config['password'], \
-        source_config['database'], ' '.join('{}'.format(t) for t in args.tablename))
+    cmd = ['mysqldump', '-h', source_config['host'], '-u', source_config['user'], \
+           '-p{}'.format(source_config['password']), source_config['database']] \
+           + args.tablename
 
     print("Running {}".format(cmd))
 
@@ -80,11 +80,11 @@ def main():
 
         with tempfile.TemporaryFile(mode='w+b') as outfile:
             for line in infile:
-                line = line.strip()
+                line = line.decode('utf-8').strip()
                 for t in args.tablename:
                     line = line.replace("`{}`".format(t), "`{}{}`".format(t, SWAP_SUFFIX))
 
-                outfile.write(bytes(line + "\n", 'UTF-8'))
+                outfile.write((line + "\n").encode('utf-8'))
 
             #we now have a line by line representation of the statements required
             #to produce tmp copies of our tables ready for swap. the next step is
@@ -97,21 +97,20 @@ def main():
             for t in args.tablename:
                 line =  "RENAME TABLE `{}` TO `{}{}`, ".format(t, t, OLD_SUFFIX)
                 line += "`{}{}` TO `{}`;".format(t, SWAP_SUFFIX, t)
-                outfile.write(bytes(line + "\n", 'UTF-8'))
+                outfile.write((line + "\n").encode('utf-8'))
 
             outfile.seek(0);
 
-            #send it all to
-            import_cmd = 'mysql -h {} -u {} -p"{}" {}'.format( \
-                dest_config['host'], dest_config['user'], dest_config['password'], \
-                dest_config['database'])
+            #send it all to mysql
+            import_cmd = ['mysql', '-h', dest_config['host'], '-u', dest_config['user'], \
+                          '-p{}'.format(dest_config['password']), dest_config['database']]
 
             check_call(import_cmd, stdin=outfile)
 
 def add_drop_old_exchange_tables(tables, outfile, old_suffix):
     for t in tables:
         line = "DROP TABLE IF EXISTS `{}{}`;".format(t, old_suffix)
-        outfile.write(bytes(line + "\n", 'UTF-8'))
+        outfile.write((line + "\n").encode('utf-8'))
 
 def magento_version_check(source_config, dest_config):
     source_conn = mysql.connector.connect(**source_config)
