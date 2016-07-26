@@ -5,6 +5,7 @@ import mysql.connector
 import random
 import string
 import tempfile
+import re
 from subprocess import check_call, Popen
 
 def main():
@@ -78,13 +79,31 @@ def main():
         SWAP_SUFFIX = "__swaptmp"
         OLD_SUFFIX = "__swapold"
 
+        #set up the contraints map
+        constraints = {}
+        for t in args.tablename:
+            constraints[t] = []
+
+        #set up an expression to capture the table name
+        table_re = re.compile('CREATE TABLE `(.*)`')
+
         with tempfile.TemporaryFile(mode='w+b') as outfile:
+            curr_table = None
             for line in infile:
                 line = line.decode('utf-8').strip()
-                for t in args.tablename:
-                    line = line.replace("`{}`".format(t), "`{}{}`".format(t, SWAP_SUFFIX))
 
-                outfile.write((line + "\n").encode('utf-8'))
+                #if there is a table name on this line, capture it
+                if line.startswith('CREATE TABLE'):
+                    curr_table = table_re.match(line).groups()[0]
+
+                #if this is a constraint, we want to remove it and re-add it later
+                if line.startswith('CONSTRAINT'):
+                    constraints[curr_table] = line
+                else:
+                    for t in args.tablename:
+                        line = line.replace("`{}`".format(t), "`{}{}`".format(t, SWAP_SUFFIX))
+
+                    outfile.write((line + "\n").encode('utf-8'))
 
             #we now have a line by line representation of the statements required
             #to produce tmp copies of our tables ready for swap. the next step is
@@ -99,7 +118,7 @@ def main():
                 line += "`{}{}` TO `{}`;".format(t, SWAP_SUFFIX, t)
                 outfile.write((line + "\n").encode('utf-8'))
 
-            outfile.seek(0);
+            outfile.seek(0)
 
             #send it all to mysql
             import_cmd = ['mysql', '-h', dest_config['host'], '-u', dest_config['user'], \
