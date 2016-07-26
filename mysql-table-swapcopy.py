@@ -68,7 +68,7 @@ def main():
            '-p{}'.format(source_config['password']), source_config['database']] \
            + args.tablename
 
-    print("Running {}".format(cmd))
+    #print("Running {}".format(cmd))
 
     with tempfile.TemporaryFile(mode='w+') as infile:
         check_call(cmd, stdout=infile)
@@ -85,7 +85,7 @@ def main():
             constraints[t] = []
 
         #set up an expression to capture the table name
-        table_re = re.compile('CREATE TABLE `(.*)`')
+        table_re = re.compile('CREATE TABLE `(.*?)`')
 
         with tempfile.TemporaryFile(mode='w+b') as outfile:
             curr_table = None
@@ -151,7 +151,16 @@ def main():
                 line += "`{}{}` TO `{}`;".format(t, SWAP_SUFFIX, t)
                 outfile.write((line + "\n").encode('utf-8'))
 
-            #re-add the constraints to the tables
+            #drop constraints from the old tables
+            const_re = re.compile('CONSTRAINT `(.*?)`')
+
+            for table in constraints:
+                for c in constraints[table]:
+                    const_name = const_re.match(c).groups()[0]
+                    line = "ALTER TABLE `{}{}` DROP FOREIGN KEY {};".format(table, OLD_SUFFIX, const_name)
+                    outfile.write((line + "\n").encode('utf-8'))
+
+            #re-add the constraints to the new tables
             for table in constraints:
                 line = "ALTER TABLE `{}` ".format(table)
                 for c in constraints[table]:
