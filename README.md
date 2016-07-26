@@ -2,7 +2,7 @@
 Atomically copies table data between two databases
 
 Handles foreign key constraints, but the operation of removing/readding
-is not atomic, unlike the data swap.
+constraints is not atomic, unlike the data swap.
 
 Requires: mysqldump and mysql cli tools
 
