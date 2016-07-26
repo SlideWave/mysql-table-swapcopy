@@ -89,25 +89,58 @@ def main():
 
         with tempfile.TemporaryFile(mode='w+b') as outfile:
             curr_table = None
+            last_pos = 0
+            last_line = ''
+            in_table = False
             for line in infile:
                 line = line.decode('utf-8').strip()
 
+                if not line:
+                    continue
+
                 #if there is a table name on this line, capture it
                 if line.startswith('CREATE TABLE'):
+                    in_table = True
                     curr_table = table_re.match(line).groups()[0]
+                    #print("in table " + curr_table)
 
                 #if this is a constraint, we want to remove it and re-add it later
                 if line.startswith('CONSTRAINT'):
-                    constraints[curr_table] = line
+                    constraints[curr_table].append(line)
                 else:
                     for t in args.tablename:
                         line = line.replace("`{}`".format(t), "`{}{}`".format(t, SWAP_SUFFIX))
 
-                    outfile.write((line + "\n").encode('utf-8'))
+                    #if this is the end of a table definition, we want to check to see if
+                    #the last line ended with a , due to us pulling out constraints
+                    #if it did, we need to fix it up so that there isn't a syntax error
+                    if in_table and line.startswith(') ENGINE='):
+                        in_table = False
+                        #print("not in table " + curr_table)
+                        #print(last_line)
+                        if last_line.endswith(","):
+                            #rewind, replace the last line, and then rewrite this one
+                            outfile.seek(last_pos)
+                            #print("patching {} to {}".format(last_line, last_line[:-1]))
+                            outfile.write((last_line[:-1] + "\n").encode('utf-8'))
+                            outfile.write((line + "\n").encode('utf-8'))
+                        else:
+                            outfile.write((line + "\n").encode('utf-8'))
+                    else:
+                        last_pos = outfile.tell()
+                        outfile.write((line + "\n").encode('utf-8'))
+
+                if not line.startswith('CONSTRAINT'):
+                    last_line = line
+
 
             #we now have a line by line representation of the statements required
             #to produce tmp copies of our tables ready for swap. the next step is
             #to add the rest of the commands that will do the rename/swap work
+
+            #disable FK checks
+            disable_fk = "/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;\n"
+            outfile.write(disable_fk.encode('utf-8'))
 
             #drop all the old exchange tables incase they're leftover
             add_drop_old_exchange_tables(args.tablename, outfile, OLD_SUFFIX)
@@ -118,7 +151,26 @@ def main():
                 line += "`{}{}` TO `{}`;".format(t, SWAP_SUFFIX, t)
                 outfile.write((line + "\n").encode('utf-8'))
 
+            #re-add the constraints to the tables
+            for table in constraints:
+                line = "ALTER TABLE `{}` ".format(table)
+                for c in constraints[table]:
+                    if c.endswith(','):
+                        c = c[:-1]
+
+                    line += "\nADD {}, ".format(c)
+
+                if constraints[table]:
+                    outfile.write((line[:-2] + ";\n").encode('utf-8'))
+
+            #enable FK checks
+            enable_fk = "/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;\n"
+            outfile.write(enable_fk.encode('utf-8'))
+
             outfile.seek(0)
+
+            #for line in outfile:
+            #    print(line)
 
             #send it all to mysql
             import_cmd = ['mysql', '-h', dest_config['host'], '-u', dest_config['user'], \
