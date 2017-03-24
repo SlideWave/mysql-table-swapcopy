@@ -4,6 +4,9 @@ Atomically copies table data between two databases
 Handles foreign key constraints, but the operation of removing/readding
 constraints is not atomic, unlike the data swap.
 
+THIS UTILITY WILL NOT COPY TRIGGERS. IF YOU'RE USING TRIGGERS THEY MUST
+ALREADY EXIST ON THE DESTINATION SCHEMA
+
 Designed to work under python2 or python3.
 
 Requires: mysqldump and mysql cli tools

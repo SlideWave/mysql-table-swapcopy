@@ -78,8 +78,8 @@ def main():
 
     #run mysqldump specifying the tables listed from the source
     cmd = ['mysqldump', '-h', source_config['host'], '-u', source_config['user'], \
-           '-p{}'.format(source_config['password']), source_config['database']] \
-           + args.tablename
+           '-p{}'.format(source_config['password']), '--skip-triggers', \
+           source_config['database']] + args.tablename
 
     #print("Running {}".format(cmd))
 
