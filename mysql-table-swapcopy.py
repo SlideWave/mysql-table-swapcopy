@@ -99,6 +99,8 @@ def main():
 
         #set up an expression to capture the table name
         table_re = re.compile('CREATE TABLE `(.*?)`')
+        #and another to grab the pesky definer statements
+        definer_re = re.compile('(/\*!50017 DEFINER=`.*?`\*/)')
 
         with tempfile.TemporaryFile(mode='w+b') as outfile:
             curr_table = None
@@ -123,6 +125,9 @@ def main():
                 else:
                     for t in args.tablename:
                         line = line.replace("`{}`".format(t), "`{}{}`".format(t, SWAP_SUFFIX))
+
+                    #also remove any definer statements
+                    line = definer_re.sub('', line)
 
                     #if this is the end of a table definition, we want to check to see if
                     #the last line ended with a , due to us pulling out constraints
